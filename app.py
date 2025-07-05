@@ -1,52 +1,50 @@
 import streamlit as st
 import pandas as pd
-from io import BytesIO
+import urllib.parse
 
 st.set_page_config(page_title="Staffaggio Luglio 2025", layout="wide")
-st.title("📊 Pianificazione Staffaggio - Luglio 2025")
+st.title("📅 Pianificazione Staffaggio - Luglio 2025")
 
-uploaded_file = st.file_uploader("Carica il file Excel o CSV unificato", type=["xlsx", "csv"])
+@st.cache_data
+def load_data():
+    return pd.read_excel("Staffaggio Luglio 2025.xlsx")
 
-if uploaded_file:
-    if uploaded_file.name.endswith(".csv"):
-        df = pd.read_csv(uploaded_file)
-    else:
-        df = pd.read_excel(uploaded_file)
+df = load_data()
+df.dropna(axis=1, how='all', inplace=True)
 
-    st.success("✅ File caricato correttamente!")
+# Giorni della settimana riconosciuti
+giorni_settimana = ["LUNEDÌ", "MARTEDÌ", "MERCOLEDÌ", "GIOVEDÌ", "VENERDÌ", "SABATO", "DOMENICA"]
+giorni_presenti = [g for g in giorni_settimana if g in df.columns]
 
-    df.dropna(axis=1, how='all', inplace=True)
+col1, col2 = st.columns(2)
 
-    st.sidebar.header("🔎 Filtri")
-    fonte = st.sidebar.multiselect("Seleziona Agenzia (FONTE)", sorted(df["FONTE"].dropna().unique()))
-    regione = st.sidebar.multiselect("Seleziona Regione", sorted(df["REGIONE"].dropna().unique()) if "REGIONE" in df else [])
-    area_manager = st.sidebar.multiselect("Seleziona Area Manager", sorted(df["AREA MANAGER"].dropna().unique()) if "AREA MANAGER" in df else [])
-    corner = st.sidebar.text_input("Filtra per nome punto vendita (CORNER contiene)")
+# Filtro giorno
+with col1:
+    giorno_scelto = st.selectbox("📅 Seleziona giorno della settimana", giorni_presenti)
 
-    df_filtrato = df.copy()
-    if fonte:
-        df_filtrato = df_filtrato[df_filtrato["FONTE"].isin(fonte)]
-    if regione and "REGIONE" in df_filtrato:
-        df_filtrato = df_filtrato[df_filtrato["REGIONE"].isin(regione)]
-    if area_manager and "AREA MANAGER" in df_filtrato:
-        df_filtrato = df_filtrato[df_filtrato["AREA MANAGER"].isin(area_manager)]
-    if corner:
-        col_match = [col for col in df_filtrato.columns if "corner" in col.lower()]
-        if col_match:
-            df_filtrato = df_filtrato[df_filtrato[col_match[0]].str.contains(corner, case=False, na=False)]
+# Filtro agenzia
+with col2:
+    agenzie = sorted(df["AGENZIA"].dropna().unique())
+    agenzia_scelta = st.selectbox("🏢 Seleziona Agenzia", ["Tutte le agenzie"] + agenzie)
 
-    st.write(f"### 📍 {len(df_filtrato)} risultati trovati")
-    st.dataframe(df_filtrato, use_container_width=True)
+# Filtro righe con presenza di BA
+df_giorno = df[df[giorno_scelto].notna() & (df[giorno_scelto] != 0)]
 
-    def convert_df_to_csv(df):
-        return df.to_csv(index=False).encode('utf-8')
+if agenzia_scelta != "Tutte le agenzie":
+    df_giorno = df_giorno[df_giorno["AGENZIA"] == agenzia_scelta]
 
-    csv_data = convert_df_to_csv(df_filtrato)
-    st.download_button(
-        label="⬇️ Scarica CSV filtrato",
-        data=csv_data,
-        file_name="staffaggio_filtrato.csv",
-        mime="text/csv"
-    )
-else:
-    st.info("📂 Carica un file per iniziare.")
+st.write(f"### 📍 {len(df_giorno)} punti vendita con presenza BA il {giorno_scelto}")
+
+# Stampa l’elenco formattato
+for _, row in df_giorno.iterrows():
+    corner = str(row["CORNER"]).strip()
+    agenzia = row["AGENZIA"]
+    orario = row[giorno_scelto]
+    indirizzo = str(row["INDIRIZZO"]).strip()
+    link_mappa = f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(indirizzo)}"
+
+    st.markdown(f"""
+    **[{corner}]({link_mappa})** _(Agenzia: {agenzia})_  
+    🕒 **Orario:** {orario}
+    ---
+    """)
